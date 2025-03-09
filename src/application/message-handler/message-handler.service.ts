@@ -3,11 +3,13 @@ import { TelegramService } from '../../infrastructure/telegram/telegram.service'
 import { LlmService } from '../../infrastructure/llm/llm.service';
 import { ImageGenerationService } from '../../infrastructure/image-generation/image-generation.service';
 import { WebContentService } from '../../infrastructure/web-content/web-content.service';
-import { Injectable, Logger } from '@nestjs/common';
-import { Chat, MessageHistory } from '../../domine/models';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { MessageHistory } from '../../domine/models';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { MessageReceivedEvent } from '../../domine/events';
 import { ChatRepository } from '../../domine/repositories';
+import { ResponseHandler } from '../../domine/contracts';
+import { RESPONSE_HANDLERS } from './tokens';
 
 @Injectable()
 export class MessageHandlerService {
@@ -22,6 +24,8 @@ export class MessageHandlerService {
     private readonly webContentService: WebContentService,
     private readonly eventEmitter: EventEmitter2,
     private readonly chatRepository: ChatRepository,
+    @Inject(RESPONSE_HANDLERS)
+    private readonly handlers: ResponseHandler[],
   ) {
     this.contextMaxTokens = 4969;
   }
@@ -89,7 +93,13 @@ export class MessageHandlerService {
         : JSON.stringify(response.content);
     this.logger.debug(`Response: ${responseContent}`);
 
-    if (responseContent.startsWith('GENERATE_IMAGE')) {
+    for (const handler of this.handlers) {
+      if (handler.canHandle(responseContent)) {
+        await handler.handle(responseContent, chatId, message);
+        return;
+      }
+    }
+    /*if (responseContent.startsWith('GENERATE_IMAGE')) {
       this.logger.debug(
         `GENERATE_IMAGE response, generating image for chat ${chatId}`,
       );
@@ -120,7 +130,7 @@ export class MessageHandlerService {
         text: randomEmoji,
         reply_to_message_id: message.message_id,
       });
-    }
+    }*/
     await this.chatRepository.saveMessage(chatId, {
       content: responseContent,
       type: 'ai',

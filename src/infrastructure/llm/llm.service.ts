@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai';
 import { RateLimiterService } from '../common/rate-limiter.service';
-import { Message, MessageHistory } from '../../domine/models';
+import { File, Message, MessageHistory } from '../../domine/models';
 
 @Injectable()
 export class LlmService {
@@ -110,6 +110,29 @@ If a user asks to you to draw or generate an image, you will answer "GENERATE_IM
 
   getSystemInstructions(): MessageHistory[] {
     return this.systemInstructions;
+  }
+
+  async processMessage(
+    isImage: boolean,
+    message: Message,
+    messages: MessageHistory[],
+    file?: File,
+  ): Promise<MessageHistory> {
+    if (isImage && this.isImageMultimodalCapable) {
+      this.logger.debug(
+        `Image message ${message.message_id} for chat ${message.chat.id}`,
+      );
+      return this.answerImageMessage({
+        text: message.caption,
+        imageUrl: file?.fileUrl,
+        messages: messages,
+      });
+    } else {
+      this.logger.debug(
+        `Text message ${message.message_id} for chat ${message.chat.id}`,
+      );
+      return this.invoke(messages);
+    }
   }
 
   async invoke(

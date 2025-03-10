@@ -3,7 +3,7 @@ import { TelegramService } from '../../infrastructure/telegram/telegram.service'
 import { LlmService } from '../../infrastructure/llm/llm.service';
 import { ImageGenerationService } from '../../infrastructure/image-generation/image-generation.service';
 import { WebContentService } from '../../infrastructure/web-content/web-content.service';
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MessageHistory } from '../../domine/models';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { MessageReceivedEvent } from '../../domine/events';
@@ -30,28 +30,21 @@ export class MessageHandlerService {
     this.contextMaxTokens = 4969;
   }
 
-  @OnEvent('message.received') async handleMessageReceived(
-    event: MessageReceivedEvent,
-  ) {
+  @OnEvent('message.received')
+  async handleMessageReceived(event: MessageReceivedEvent) {
     this.logger.debug(`Processing message ${JSON.stringify(event, null, 2)}`);
     const { chatId, message, isBotReply, isReply, isImage, file } = event;
-    /* if (!this.chats[chatId]) {
-       this.chats[chatId] = { id: chatId, messages: [] };
-     }*/
+
     const messageText = isImage ? message.caption : message.text;
-    if (!messageText) {
-      this.logger.debug('Message has no text, skipping');
-      return;
-    }
+
     this.logger.debug(`Message text: ${messageText}`);
 
     let messageParts = `@${message.from?.username ?? message.from?.first_name ?? 'Unknown'}: `;
 
     if (isBotReply) {
       messageParts += `@${this.configService.get<string>('TELEGRAM_BOT_USERNAME')}: `;
-    } else if (isReply && message.reply_to_message) {
-      const replyToText = messageText;
-      messageParts += `\n ${messageParts} said: ${replyToText}\n\n`;
+    } else if (isReply) {
+      messageParts += `\n ${messageParts} said: ${messageText}\n\n`;
     } else {
       messageParts += messageText;
     }
@@ -61,6 +54,38 @@ export class MessageHandlerService {
       content: messageParts,
     });
 
+    await this.cleanChatContext(chatId);
+
+    const response: MessageHistory = await this.llmService.processMessage(
+      isImage,
+      message,
+      await this.chatRepository.getMessages(chatId),
+      file,
+    );
+
+    const responseContent = this.convertToString(response.content);
+
+    this.logger.debug(`Response: ${responseContent}`);
+
+    for (const handler of this.handlers) {
+      if (handler.canHandle(responseContent)) {
+        await handler.handle(responseContent, chatId, message);
+        break;
+      }
+    }
+    await this.chatRepository.saveMessage(chatId, {
+      content: responseContent,
+      type: 'ai',
+    });
+  }
+
+  convertToString(responseContent: any): string {
+    return typeof responseContent === 'string'
+      ? responseContent
+      : JSON.stringify(responseContent);
+  }
+
+  async cleanChatContext(chatId: string | number): Promise<void> {
     while (
       this.llmService.countTokens(
         await this.chatRepository.getMessages(chatId),
@@ -69,71 +94,5 @@ export class MessageHandlerService {
       await this.chatRepository.removeLastMessage(chatId);
       this.logger.debug(`Chat context cleaned for chat ${chatId}`);
     }
-    let response: MessageHistory;
-    const messages = await this.chatRepository.getMessages(chatId);
-
-    if (isImage && this.llmService.isImageMultimodalCapable) {
-      this.logger.debug(
-        `Image message ${message.message_id} for chat ${chatId}`,
-      );
-      response = await this.llmService.answerImageMessage({
-        text: message.caption,
-        imageUrl: file.fileUrl,
-        messages: messages,
-      });
-    } else {
-      this.logger.debug(
-        `Text message ${message.message_id} for chat ${chatId}`,
-      );
-      response = await this.llmService.invoke(messages);
-    }
-    const responseContent =
-      typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
-    this.logger.debug(`Response: ${responseContent}`);
-
-    for (const handler of this.handlers) {
-      if (handler.canHandle(responseContent)) {
-        await handler.handle(responseContent, chatId, message);
-        return;
-      }
-    }
-    /*if (responseContent.startsWith('GENERATE_IMAGE')) {
-      this.logger.debug(
-        `GENERATE_IMAGE response, generating image for chat ${chatId}`,
-      );
-      //TODO: Implement image generation
-    } else if (responseContent.startsWith('WEBCONTENT_RESUME')) {
-      this.logger.debug(
-        `WEBCONTENT_RESUME response, generating web content abstract for chat ${chatId}`,
-      );
-      //TODO: Implement web content abstract generation
-    } else if (responseContent.startsWith('WEBCONTENT_OPINION')) {
-      this.logger.debug(
-        `WEBCONTENT_OPINION response, generating web content opinion for chat ${chatId}`,
-      );
-      //TODO: Implement web content opinion generation
-    } else if (!responseContent.includes('NO_ANSWER')) {
-      this.logger.debug(`Sending response for chat ${chatId}`);
-      this.eventEmitter.emitAsync('send.message', {
-        chat: chatId,
-        text: responseContent,
-        reply_to_message_id: message.message_id,
-      });
-    } else {
-      this.logger.debug(`No answer for chat ${chatId}`);
-      const emojis = ['😐', '😶', '😳', '😕', '😑'];
-      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-      this.eventEmitter.emitAsync('send.message', {
-        chat: chatId,
-        text: randomEmoji,
-        reply_to_message_id: message.message_id,
-      });
-    }*/
-    await this.chatRepository.saveMessage(chatId, {
-      content: responseContent,
-      type: 'ai',
-    });
   }
 }

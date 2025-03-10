@@ -7,7 +7,7 @@ export class MessageReceivedEvent {
     public readonly isBotReply?: boolean,
     public readonly isReply?: boolean,
     public readonly isImage?: boolean,
-    public readonly file?: { fileUrl: string; file: File },
+    public readonly file?: File,
   ) {}
 }
 

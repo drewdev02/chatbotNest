@@ -18,4 +18,4 @@ export interface Chat {
   messages: MessageHistory[];
 }
 
-export type File = Telegram.File;
+export type File = { fileUrl: string; file: Telegram.File };

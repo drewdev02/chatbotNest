@@ -27,6 +27,12 @@ import { RESPONSE_HANDLERS } from './tokens';
     NoAnswerHandler,
     {
       provide: RESPONSE_HANDLERS,
+      inject: [
+        GenerateImageHandler,
+        WebContentResumeHandler,
+        DefaultMessageHandler,
+        NoAnswerHandler,
+      ],
       useFactory: (
         generateImageHandler: GenerateImageHandler,
         webContentResumeHandler: WebContentResumeHandler,
@@ -37,12 +43,6 @@ import { RESPONSE_HANDLERS } from './tokens';
         webContentResumeHandler,
         defaultMessageHandler,
         noAnswerHandler,
-      ],
-      inject: [
-        GenerateImageHandler,
-        WebContentResumeHandler,
-        DefaultMessageHandler,
-        NoAnswerHandler,
       ],
     },
   ],

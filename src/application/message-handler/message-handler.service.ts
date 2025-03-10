@@ -80,9 +80,16 @@ export class MessageHandlerService {
   }
 
   convertToString(responseContent: any): string {
-    return typeof responseContent === 'string'
-      ? responseContent
-      : JSON.stringify(responseContent);
+    if (typeof responseContent === 'string') {
+      return responseContent;
+    }
+    try {
+      const res = JSON.parse(responseContent);
+      if ('content' in res) {
+        return res.content;
+      }
+    } catch (e) {}
+    return JSON.stringify(responseContent);
   }
 
   async cleanChatContext(chatId: string | number): Promise<void> {
